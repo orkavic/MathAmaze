@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Math Blaster – Pixel Edition</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background:#000;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      height:100vh;
+      overflow:hidden;
+    }
+    canvas {
+      display:block;
+      image-rendering:pixelated;
+      image-rendering:crisp-edges;
+    }
+  </style>
+</head>
+<body>
+<canvas id="g"></canvas>
+<script>
+// ─── Setup ───────────────────────────────────────────────────────────────────
+const C = document.getElementById('g');
+const X = C.getContext('2d');
+C.width  = 800;
+C.height = 600;
+X.imageSmoothingEnabled = false;
+
+const PX = 3;          // sprite-pixel size (3×3 canvas px = 1 sprite px)
+const HUD = 70;        // HUD height in canvas px
+const GND = 582;       // y of ground surface
+
+// States
+const S = { TITLE:0, PLAY:1, LEVELUP:2, OVER:3 };
+
+// Palette
+const P = {
+  sky:'#020a18',  grid:'#040e22',
+  gnd0:'#0a1830', gnd1:'#0d1f3c', gndEdge:'#1a3a6a',
+  star:'#ffffff',  starB:'#aabbff', starY:'#ffffaa',
+
+  // Robot
+  rB:'#2266cc',   // body blue
+  rD:'#0d2a60',   // dark blue
+  rC:'#44ccff',   // cyan accent
+  rY:'#ffdd00',   // yellow
+  rP:'#ff6699',   // pink (antenna)
+  rW:'#ffffff',
+
+  // Bubbles
+  b0:'#dd2255', b1:'#2288dd', b2:'#22bb55', b3:'#ddaa00',
+
+  // HUD
+  hBg:'#020c22',  hLine:'#2244aa',
+  hTxt:'#ffffff', hAcc:'#ffcc00', hTime:'#44aaff',
+
+  // Effects
+  eY:'#ffcc00', eR:'#ff3333', eW:'#ffffff',
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const rnd  = (a,b)  => Math.floor(Math.random()*(b-a+1))+a;
+const clmp = (v,a,b)=> Math.max(a,Math.min(b,v));
+const shuf = a      => a.slice().sort(()=>Math.random()-.5);
+const burst= (arr,x,y,col,n)=>{ for(let i=0;i<n;i++) arr.push(new Ptcl(x,y,col)); };
+
+// Filled pixel-art circle
+function pixCirc(cx,cy,r,fill,edge,sz=PX){
+  cx=Math.round(cx); cy=Math.round(cy);
+  for(let dy=-r;dy<=r;dy+=sz){
+    for(let dx=-r;dx<=r;dx+=sz){
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<=r){
+        X.fillStyle = d>r-sz*1.6 ? edge : fill;
+        X.fillRect(cx+dx, cy+dy, sz, sz);
+      }
+    }
+  }
+}
+
+// Draw a single pixel-art pixel relative to (ox,oy)
+function sp(ox,oy, dx,dy, col, w=1,h=1){
+  X.fillStyle=col;
+  X.fillRect(Math.round(ox+dx*PX), Math.round(oy+dy*PX), w*PX, h*PX);
+}
+
+// ─── Stars ───────────────────────────────────────────────────────────────────
+class Star {
+  constructor(){
+    this.x=Math.random()*800; this.y=Math.random()*600;
+    this.sz=Math.random()<.5?2:Math.random()<.7?3:1;
+    this.col=[P.star,P.starB,P.starY][Math.floor(Math.random()*3)];
+    this.ph=Math.random()*Math.PI*2; this.spd=Math.random()*1.5+.5;
+  }
+  draw(t){
+    const a=.25+.75*Math.abs(Math.sin(t*this.spd+this.ph));
+    X.globalAlpha=a; X.fillStyle=this.col;
+    X.fillRect(this.x,this.y,this.sz,this.sz);
+    X.globalAlpha=1;
+  }
+}
+
+// ─── Particle (square) ───────────────────────────────────────────────────────
+class Ptcl {
+  constructor(x,y,col){
+    const a=Math.random()*Math.PI*2, spd=Math.random()*160+40;
+    this.x=x; this.y=y;
+    this.vx=Math.cos(a)*spd; this.vy=Math.sin(a)*spd-70;
+    this.col=col; this.sz=Math.random()<.5?PX:PX*2;
+    this.life=1; this.decay=Math.random()*1.1+.8;
+  }
+  update(dt){ this.x+=this.vx*dt; this.y+=this.vy*dt; this.vy+=240*dt; this.life-=this.decay*dt; }
+  draw(){
+    if(this.life<=0)return;
+    X.globalAlpha=Math.max(0,this.life);
+    X.fillStyle=this.col;
+    X.fillRect(Math.round(this.x),Math.round(this.y),this.sz,this.sz);
+    X.globalAlpha=1;
+  }
+}
+
+// ─── Popup text ──────────────────────────────────────────────────────────────
+class Popup {
+  constructor(x,y,txt,col){ this.x=x; this.y=y; this.txt=txt; this.col=col; this.life=1; }
+  update(dt){ this.y-=50*dt; this.life-=1.4*dt; }
+  draw(){
+    if(this.life<=0)return;
+    X.save(); X.globalAlpha=Math.max(0,this.life);
+    X.textAlign='center'; X.font='bold 19px "Courier New"';
+    X.fillStyle='#000'; X.fillText(this.txt,this.x+2,this.y+2);
+    X.fillStyle=this.col; X.fillText(this.txt,this.x,this.y);
+    X.restore();
+  }
+}
+
+// ─── Bubble ──────────────────────────────────────────────────────────────────
+class Bubble {
+  constructor(x,y,val,correct,fill){
+    this.x=x; this.y=y;
+    this.vx=(Math.random()-.5)*100; this.vy=(Math.random()-.5)*100;
+    this.val=val; this.correct=correct; this.fill=fill;
+    this.r=30; this.ph=Math.random()*Math.PI*2; this.cd=0;
+  }
+  update(dt){
+    this.x+=this.vx*dt; this.y+=this.vy*dt;
+    this.ph+=dt*2.2; this.cd=Math.max(0,this.cd-dt);
+    if(this.x-this.r<0)   {this.vx= Math.abs(this.vx); this.x=this.r;}
+    if(this.x+this.r>800) {this.vx=-Math.abs(this.vx); this.x=800-this.r;}
+    if(this.y-this.r<HUD) {this.vy= Math.abs(this.vy); this.y=HUD+this.r;}
+    if(this.y+this.r>GND) {this.vy=-Math.abs(this.vy); this.y=GND-this.r;}
+  }
+  draw(){
+    // flash when hit-cooling
+    if(this.cd>0 && Math.sin(this.cd*24)>0) return;
+
+    // glow ring (pulsing)
+    const g=.3+.7*Math.abs(Math.sin(this.ph));
+    X.globalAlpha=g*.55;
+    pixCirc(this.x,this.y,this.r+5,this.fill,this.fill,PX);
+    X.globalAlpha=1;
+
+    pixCirc(this.x,this.y,this.r,this.fill,'#ffffff',PX);
+
+    // number
+    X.textAlign='center'; X.textBaseline='middle';
+    X.font=`bold 22px "Courier New"`;
+    X.fillStyle='#000'; X.fillText(this.val,this.x+2,this.y+2);
+    X.fillStyle='#fff'; X.fillText(this.val,this.x,this.y);
+    X.textBaseline='alphabetic';
+  }
+}
+
+// ─── Robot mascot (pixel-art sprite) ─────────────────────────────────────────
+// cx,cy = waist center  |  mv = is moving  |  t = time
+function drawRobot(cx,cy,mv,t){
+  const leg = mv ? (Math.sin(t*13)>0?1:-1) : 0;
+  const arm = mv ? Math.round(Math.sin(t*13)) : 0;
+
+  // ── LEGS
+  sp(cx,cy, -3, 5, P.rB, 2, 4+leg);
+  sp(cx,cy,  1, 5, P.rB, 2, 4-leg);
+  // feet
+  sp(cx,cy, -4, 9+leg,  P.rC, 3,1);
+  sp(cx,cy,  1, 9-leg,  P.rC, 3,1);
+
+  // ── BODY
+  sp(cx,cy, -4,-1, P.rB,  8,6);   // fill
+  sp(cx,cy, -4,-1, P.rC,  8,1);   // top edge
+  sp(cx,cy, -4,-1, P.rC,  1,6);   // left edge
+  sp(cx,cy,  3,-1, P.rC,  1,6);   // right edge
+
+  // chest screen
+  sp(cx,cy, -2, 0, P.rD,  4,4);
+  sp(cx,cy, -2, 0, P.rC,  4,1);   // screen glow row
+  // + symbol
+  sp(cx,cy, -1, 1, P.rY,  2,1);   // horiz
+  sp(cx,cy,  0, 0, P.rY,  1,4);   // vert (overlaps)
+
+  // ── ARMS
+  sp(cx,cy, -6,-1+arm, P.rB, 2,4);
+  sp(cx,cy,  4,-1-arm, P.rB, 2,4);
+  // hands
+  sp(cx,cy, -6, 3+arm, P.rC, 2,2);
+  sp(cx,cy,  4, 3-arm, P.rC, 2,2);
+
+  // ── NECK
+  sp(cx,cy, -1,-3, P.rD, 2,2);
+
+  // ── HEAD
+  sp(cx,cy, -4,-11, P.rB,  8,8);  // fill
+  sp(cx,cy, -4,-11, P.rC,  8,1);  // top edge
+  sp(cx,cy, -4,-11, P.rC,  1,8);  // left edge
+  sp(cx,cy,  3,-11, P.rC,  1,8);  // right edge
+  sp(cx,cy, -4, -4, P.rC,  8,1);  // bottom edge
+
+  // visor window
+  sp(cx,cy, -3,-10, P.rD,  6,5);
+  sp(cx,cy, -3,-10, P.rC,  6,1);  // visor top glow
+
+  // eyes
+  sp(cx,cy, -3, -9, P.rC, 2,3);   // left eye glow
+  sp(cx,cy,  1, -9, P.rC, 2,3);   // right eye glow
+  sp(cx,cy, -2, -8, P.rD, 1,1);   // left pupil
+  sp(cx,cy,  2, -8, P.rD, 1,1);   // right pupil
+  sp(cx,cy, -3, -9, P.rW, 1,1);   // left shine
+  sp(cx,cy,  1, -9, P.rW, 1,1);   // right shine
+
+  // mouth (happy :)  )
+  sp(cx,cy, -2,-5, P.rY, 1,1);
+  sp(cx,cy, -1,-4, P.rY, 2,1);
+  sp(cx,cy,  1,-5, P.rY, 1,1);
+
+  // ear bolts
+  sp(cx,cy, -5,-8, P.rC, 1,2);
+  sp(cx,cy,  4,-8, P.rC, 1,2);
+
+  // ── ANTENNA
+  sp(cx,cy,  0,-12, P.rC,  1,2);
+  const blink = Math.sin(t*3)>0;
+  sp(cx,cy, -1,-14, P.rP, 2,2);
+  if(blink) sp(cx,cy, -1,-14, P.rW, 1,1);
+}
+
+// ─── World background ─────────────────────────────────────────────────────────
+const STARS = Array.from({length:130}, ()=>new Star());
+
+// Pixel-art cloud (drawn as rect clusters)
+function drawCloud(x,y,w){
+  X.fillStyle='#0d1e3a';
+  X.fillRect(x,     y+6,  w,   8);
+  X.fillRect(x+6,   y,    w-12,10);
+  X.fillRect(x+12,  y-4,  w-24,8);
+}
+const CLOUDS = [{x:60,y:100,w:80},{x:260,y:140,w:100},{x:500,y:90,w:90},{x:680,y:130,w:70}];
+
+function drawWorld(t){
+  // Sky
+  X.fillStyle=P.sky; X.fillRect(0,0,800,600);
+
+  // Grid
+  X.fillStyle=P.grid;
+  for(let x=0;x<800;x+=16) X.fillRect(x,HUD,1,600-HUD);
+  for(let y=HUD;y<600;y+=16) X.fillRect(0,y,800,1);
+
+  // Stars
+  STARS.forEach(s=>s.draw(t));
+
+  // Pixel clouds
+  CLOUDS.forEach(c=>drawCloud(c.x,c.y,c.w));
+
+  // Ground strip (tiled)
+  for(let x=0;x<800;x+=16){
+    X.fillStyle = (Math.floor(x/16)%2===0) ? P.gnd0 : P.gnd1;
+    X.fillRect(x, GND, 16, 600-GND);
+    // top edge
+    X.fillStyle=P.gndEdge;
+    X.fillRect(x, GND, 16, 3);
+  }
+  // ground pixel detail dots
+  for(let x=4;x<800;x+=16){
+    X.fillStyle='#1c3a6a';
+    X.fillRect(x, GND+6, 3, 3);
+  }
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+function drawPixelHeart(cx,cy,lit){
+  const c = lit ? '#ff4477' : '#2a2a44';
+  // 8-wide pixel heart
+  [[2,0],[3,0],[5,0],[6,0],
+   [1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[7,1],
+   [1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],
+   [2,3],[3,3],[4,3],[5,3],[6,3],
+   [3,4],[4,4],[5,4],
+   [4,5]
+  ].forEach(([dx,dy])=>{
+    X.fillStyle=c;
+    X.fillRect(cx+dx*2-8, cy+dy*2-6, 2, 2);
+  });
+}
+
+function drawHUD(q,timer,score,lives,level,lname){
+  X.fillStyle=P.hBg; X.fillRect(0,0,800,HUD);
+  // border line
+  X.fillStyle=P.hLine; X.fillRect(0,HUD-2,800,2);
+  // corner accents
+  X.fillStyle='#3355bb';
+  X.fillRect(0,0,4,HUD); X.fillRect(796,0,4,HUD);
+
+  // Question box
+  X.fillStyle='#060f28'; X.fillRect(220,8,360,42);
+  X.fillStyle=P.hLine;
+  X.fillRect(220,8,360,2); X.fillRect(220,8,2,42);
+  X.fillRect(578,8,2,42);  X.fillRect(220,48,360,2);
+
+  X.textAlign='center';
+  X.font='bold 26px "Courier New"';
+  X.fillStyle='#111'; X.fillText(`${q} = ?`,401,40);
+  X.fillStyle=P.hAcc; X.fillText(`${q} = ?`,400,39);
+
+  // Score + level
+  X.textAlign='left'; X.fillStyle=P.hTxt;
+  X.font='bold 13px "Courier New"';
+  X.fillText(`SCR:${score}`,10,22);
+  X.fillStyle='#7799ff';
+  X.font='12px "Courier New"';
+  X.fillText(`LV${level} ${lname}`,10,40);
+
+  // Timer bar (segmented)
+  const frac=Math.max(0,timer/30);
+  const tc=timer<8?'#ff3333':timer<15?'#ffaa00':P.hTime;
+  X.fillStyle='#0a1128'; X.fillRect(610,18,130,12);
+  for(let i=0;i<Math.ceil(frac*26);i++){
+    X.fillStyle=tc;
+    X.fillRect(611+i*5,19,4,10);
+  }
+  X.fillStyle='#223355';
+  X.fillRect(610,18,130,1); X.fillRect(610,29,130,1);
+  X.fillRect(610,18,1,12);  X.fillRect(740,18,1,12);
+
+  X.fillStyle=tc; X.font='bold 12px "Courier New"';
+  X.textAlign='right';
+  X.fillText(`${Math.ceil(timer)}S`,607,29);
+
+  // Hearts
+  for(let i=0;i<3;i++) drawPixelHeart(780-i*24,50,i<lives);
+}
+
+// ─── Scanlines ────────────────────────────────────────────────────────────────
+function scanlines(){
+  X.fillStyle='rgba(0,0,0,0.10)';
+  for(let y=0;y<600;y+=4) X.fillRect(0,y,800,2);
+}
+
+// ─── Retro box ────────────────────────────────────────────────────────────────
+function retroBox(x,y,w,h,edgeCol){
+  X.fillStyle='rgba(2,8,28,0.93)'; X.fillRect(x,y,w,h);
+  X.fillStyle=edgeCol;
+  X.fillRect(x,y,w,2); X.fillRect(x,y+h-2,w,2);
+  X.fillRect(x,y,2,h); X.fillRect(x+w-2,y,2,h);
+  // corner dots
+  X.fillRect(x,y,4,4); X.fillRect(x+w-4,y,4,4);
+  X.fillRect(x,y+h-4,4,4); X.fillRect(x+w-4,y+h-4,4,4);
+}
+
+// ─── Game ─────────────────────────────────────────────────────────────────────
+const G={
+  state: S.TITLE,
+  keys:{}, lastT:0,
+  score:0, lives:3, level:1, answered:0,
+  player:{x:400,y:320,size:13},
+  bubbles:[], parts:[], popups:[],
+  question:{disp:'',ans:0},
+  timer:30,
+  flash:0, flashCol:'#00aa00',
+};
+
+// Key handling
+window.addEventListener('keydown',e=>{
+  if([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+  G.keys[e.key]=true;
+  if(e.key===' '){
+    if(G.state===S.TITLE)   { resetGame(); G.state=S.PLAY; newQ(); }
+    if(G.state===S.OVER)    { resetGame(); G.state=S.PLAY; newQ(); }
+    if(G.state===S.LEVELUP) { G.state=S.PLAY; newQ(); }
+  }
+});
+window.addEventListener('keyup',e=>{ G.keys[e.key]=false; });
+
+function resetGame(){
+  G.score=0; G.lives=3; G.level=1; G.answered=0;
+  G.player={x:400,y:320,size:13};
+  G.bubbles=[]; G.parts=[]; G.popups=[];
+}
+
+// ─── Question generation ──────────────────────────────────────────────────────
+function makeQ(){
+  const lv=G.level;
+  let a,b,ans,disp;
+  if(lv<=3){
+    const mx=lv===1?9:lv===2?19:49;
+    a=rnd(1,mx); b=rnd(1,mx); ans=a+b; disp=`${a}+${b}`;
+  }else if(lv<=6){
+    const mx=lv===4?14:lv===5?24:49;
+    a=rnd(5,mx); b=rnd(1,a-1); ans=a-b; disp=`${a}-${b}`;
+  }else if(lv<=9){
+    const mf=lv===7?5:lv===8?9:12;
+    a=rnd(2,mf); b=rnd(2,mf); ans=a*b; disp=`${a}x${b}`;
+  }else{
+    b=rnd(2,9); ans=rnd(2,9); a=ans*b; disp=`${a}/${b}`;
+  }
+  return {disp,ans};
+}
+
+function makeWrongs(correct,n){
+  const s=new Set();
+  const offs=shuf([-8,-7,-6,-5,-4,-3,-2,-1,1,2,3,4,5,6,7,8]);
+  for(const o of offs){ const w=correct+o; if(w>0) s.add(w); if(s.size>=n)break; }
+  for(let i=1;s.size<n;i++) if(i!==correct) s.add(i);
+  return [...s].slice(0,n);
+}
+
+function newQ(){
+  G.question=makeQ();
+  G.timer=30;
+  const {ans}=G.question;
+  const vals=shuf([ans,...makeWrongs(ans,3)]);
+  const FILLS=shuf([P.b0,P.b1,P.b2,P.b3]);
+  G.bubbles=vals.map((v,i)=>{
+    const ang=(i/4)*Math.PI*2+Math.random()*.7;
+    const dist=120+Math.random()*80;
+    const x=clmp(400+Math.cos(ang)*dist,45,755);
+    const y=clmp(310+Math.sin(ang)*dist,HUD+40,GND-40);
+    return new Bubble(x,y,v,v===ans,FILLS[i]);
+  });
+}
+
+// ─── Update ───────────────────────────────────────────────────────────────────
+function update(dt){
+  if(G.state!==S.PLAY) return;
+
+  // Move player
+  const spd=225;
+  if(G.keys['ArrowLeft'] ||G.keys['a']) G.player.x-=spd*dt;
+  if(G.keys['ArrowRight']||G.keys['d']) G.player.x+=spd*dt;
+  if(G.keys['ArrowUp']   ||G.keys['w']) G.player.y-=spd*dt;
+  if(G.keys['ArrowDown'] ||G.keys['s']) G.player.y+=spd*dt;
+  G.player.x=clmp(G.player.x,22,778);
+  // top: keep antenna (14 sprite px above = 42 canvas px) above HUD
+  // bottom: keep feet (9 sprite px below = 27 canvas px) above ground
+  G.player.y=clmp(G.player.y,HUD+44,GND-28);
+
+  // Bubbles
+  G.bubbles.forEach(b=>b.update(dt));
+
+  // Collisions
+  for(const b of G.bubbles){
+    if(b.cd>0) continue;
+    const dx=G.player.x-b.x, dy=G.player.y-b.y;
+    if(Math.sqrt(dx*dx+dy*dy)<G.player.size+b.r-8){
+      b.correct ? onCorrect(b) : onWrong(b);
+      break;
+    }
+  }
+
+  // Timer
+  G.timer-=dt;
+  if(G.timer<=0) onTimeout();
+
+  // Effects
+  G.parts=G.parts.filter(p=>p.life>0);
+  G.parts.forEach(p=>p.update(dt));
+  G.popups=G.popups.filter(p=>p.life>0);
+  G.popups.forEach(p=>p.update(dt));
+  if(G.flash>0) G.flash-=dt;
+}
+
+function onCorrect(b){
+  burst(G.parts,b.x,b.y,b.fill,22);
+  burst(G.parts,b.x,b.y,P.eY,10);
+  const pts=10*G.level;
+  G.score+=pts; G.answered++;
+  G.popups.push(new Popup(b.x,b.y-40,`+${pts}`,P.eY));
+  G.flash=.3; G.flashCol='#004400';
+  if(G.answered%5===0 && G.level<10){
+    G.level++;
+    G.state=S.LEVELUP;
+    G.bubbles=[];
+  }else newQ();
+}
+
+function onWrong(b){
+  burst(G.parts,b.x,b.y,P.eR,14);
+  G.popups.push(new Popup(b.x,b.y-40,'WRONG!',P.eR));
+  b.cd=1.6;
+  G.flash=.45; G.flashCol='#440000';
+  G.lives--;
+  if(G.lives<=0) G.state=S.OVER;
+}
+
+function onTimeout(){
+  G.popups.push(new Popup(400,300,'TIME!','#ff9900'));
+  G.flash=.5; G.flashCol='#440000';
+  G.lives--;
+  if(G.lives<=0){ G.state=S.OVER; return; }
+  newQ();
+}
+
+// ─── Level name ───────────────────────────────────────────────────────────────
+function lname(){ return ['','ADD','ADD','ADD','SUB','SUB','SUB','MUL','MUL','MUL','DIV'][G.level]||'DIV'; }
+function lfull(){ return ['','ADDITION','ADDITION','ADDITION','SUBTRACTION','SUBTRACTION','SUBTRACTION','MULTIPLY','MULTIPLY','MULTIPLY','DIVISION'][G.level]||'DIVISION'; }
+
+// ─── Draw screens ─────────────────────────────────────────────────────────────
+function drawTitle(t){
+  drawWorld(t);
+  retroBox(140,70,520,210,'#2244bb');
+
+  X.textAlign='center';
+  X.font='bold 50px "Courier New"';
+  X.fillStyle='#050f30'; X.fillText('MATH BLASTER',401,142);
+  X.fillStyle=P.hAcc;    X.fillText('MATH BLASTER',400,140);
+
+  X.font='bold 14px "Courier New"';
+  X.fillStyle='#6688cc'; X.fillText('-- PIXEL EDITION --',400,168);
+
+  X.font='13px "Courier New"';
+  X.fillStyle='#99aacc';
+  X.fillText('FLY INTO THE CORRECT ANSWER BUBBLE!',400,200);
+  X.fillText('ARROW KEYS  /  WASD  TO  MOVE',400,222);
+  X.fillText('WRONG ANSWER = -1 LIFE   |   TIME OUT = -1 LIFE',400,244);
+
+  const pulse=.4+.6*Math.abs(Math.sin(t*2.8));
+  X.globalAlpha=pulse;
+  X.fillStyle='#44ccff'; X.font='bold 20px "Courier New"';
+  X.fillText('>>> PRESS  SPACE  TO  START <<<',400,360);
+  X.globalAlpha=1;
+
+  // Robot mascot on title
+  drawRobot(400,490,false,t);
+  scanlines();
+}
+
+function drawGameOver(t){
+  drawWorld(t);
+  retroBox(160,120,480,300,'#881122');
+
+  X.textAlign='center';
+  X.font='bold 50px "Courier New"';
+  X.fillStyle='#440011'; X.fillText('GAME OVER',401,203);
+  X.fillStyle='#ff3344'; X.fillText('GAME OVER',400,201);
+
+  X.font='bold 20px "Courier New"';
+  X.fillStyle=P.hAcc; X.fillText(`SCORE: ${G.score}`,400,258);
+
+  X.font='15px "Courier New"';
+  X.fillStyle='#7799ff';
+  X.fillText(`LEVEL ${G.level}  -  ${lfull()}`,400,294);
+  X.fillText(`QUESTIONS ANSWERED: ${G.answered}`,400,322);
+
+  const pulse=.4+.6*Math.abs(Math.sin(t*2.8));
+  X.globalAlpha=pulse;
+  X.fillStyle='#ffffff'; X.font='bold 17px "Courier New"';
+  X.fillText('>>> PRESS SPACE TO RETRY <<<',400,448);
+  X.globalAlpha=1;
+  scanlines();
+}
+
+function drawLevelUp(t){
+  drawWorld(t);
+  G.parts.forEach(p=>p.draw());
+  retroBox(160,120,480,300,'#116633');
+
+  const sc=1+.04*Math.sin(t*9);
+  X.save(); X.translate(400,225); X.scale(sc,sc);
+  X.textAlign='center';
+  X.font='bold 50px "Courier New"';
+  X.fillStyle='#003311'; X.fillText(`LEVEL ${G.level}!`,1,2);
+  X.fillStyle='#44ff88'; X.fillText(`LEVEL ${G.level}!`,0,0);
+  X.restore();
+
+  X.textAlign='center';
+  X.font='bold 22px "Courier New"';
+  X.fillStyle=P.hAcc; X.fillText(lfull(),400,295);
+
+  X.font='15px "Courier New"';
+  X.fillStyle='#aaaacc'; X.fillText(`SCORE: ${G.score}`,400,330);
+
+  const pulse=.4+.6*Math.abs(Math.sin(t*2.8));
+  X.globalAlpha=pulse;
+  X.fillStyle='#44ff88'; X.font='bold 17px "Courier New"';
+  X.fillText('>>> PRESS SPACE TO CONTINUE <<<',400,450);
+  X.globalAlpha=1;
+  scanlines();
+}
+
+// ─── Main draw ────────────────────────────────────────────────────────────────
+function draw(t){
+  X.imageSmoothingEnabled=false;
+
+  if(G.state===S.TITLE)  { drawTitle(t); return; }
+  if(G.state===S.OVER)   { drawGameOver(t); return; }
+  if(G.state===S.LEVELUP){ drawLevelUp(t); return; }
+
+  // PLAYING
+  drawWorld(t);
+  G.bubbles.forEach(b=>b.draw());
+  G.parts.forEach(p=>p.draw());
+  G.popups.forEach(p=>p.draw());
+
+  const mv=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','a','s','d','w'].some(k=>G.keys[k]);
+  drawRobot(G.player.x, G.player.y, mv, t);
+
+  drawHUD(G.question.disp, G.timer, G.score, G.lives, G.level, lname());
+
+  // Screen flash
+  if(G.flash>0){
+    X.fillStyle=G.flashCol==='#004400'
+      ?`rgba(0,160,0,${G.flash*.5})`
+      :`rgba(180,0,0,${G.flash*.6})`;
+    X.fillRect(0,0,800,600);
+  }
+  scanlines();
+}
+
+// ─── Loop ─────────────────────────────────────────────────────────────────────
+function loop(ts){
+  const dt=Math.min((ts-G.lastT)/1000,.05);
+  G.lastT=ts;
+  update(dt);
+  draw(ts/1000);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(ts=>{ G.lastT=ts; loop(ts); });
+</script>
+</body>
+</html>
