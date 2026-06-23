@@ -60,7 +60,7 @@ function retroBox(x,y,w,h,col){
   X.fillStyle=col;
   X.fillRect(x,y,w,2); X.fillRect(x,y+h-2,w,2);
   X.fillRect(x,y,2,h); X.fillRect(x+w-2,y,2,h);
-  X.fillStyle=col; // corner squares
+  X.fillStyle=col;
   [[x,y],[x+w-6,y],[x,y+h-6],[x+w-6,y+h-6]].forEach(([px,py])=>X.fillRect(px,py,6,6));
 }
 
@@ -80,7 +80,6 @@ function hpBar(x,y,w,h,cur,max,col){
 
 function pixHeart(cx,cy,on){
   const c=on?'#ff4477':'#2a2244';
-  // 5-wide pixel heart (2px per unit)
   const pts=[[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1],[4,1],
               [0,2],[1,2],[2,2],[3,2],[4,2],[1,3],[2,3],[3,3],[2,4]];
   pts.forEach(([dx,dy])=>{ X.fillStyle=c; X.fillRect(cx+dx*2-5,cy+dy*2-5,2,2); });
@@ -98,12 +97,9 @@ function genMap(){
 
       if(ty<2||ty>=HT-2||tx<2||tx>=WT-2){ MAP[ty][tx]=T.WATER; continue; }
       if(ty<4||ty>=HT-4){ MAP[ty][tx]=Math.random()<.7?T.TREE:ZONES[zi].ground; continue; }
-      // central corridor always clear
       if(ty>=midY-3&&ty<=midY+3){ MAP[ty][tx]=ZONES[zi].ground; continue; }
-      // clear 2-tile strips at zone boundaries
       const lx=tx%(WT/4);
       if(lx<=1||lx>=(WT/4-2)){ MAP[ty][tx]=ZONES[zi].ground; continue; }
-      // random obstacles
       const r=Math.random();
       MAP[ty][tx] = r<.07?T.TREE : r<.10?T.ROCK : ZONES[zi].ground;
     }
@@ -125,25 +121,23 @@ function drawTile(type,sx,sy,tx,ty){
     return;
   }
 
-  // Ground base
   X.fillStyle=ck?GND[zi]:GND2[zi]; X.fillRect(sx,sy,TILE,TILE);
 
   if(type===T.TREE){
-    X.fillStyle='#5a3010'; X.fillRect(sx+12,sy+18,8,14);   // trunk
+    X.fillStyle='#5a3010'; X.fillRect(sx+12,sy+18,8,14);
     X.fillStyle=TREE_LEAF[zi];
     X.fillRect(sx+4,sy,24,10); X.fillRect(sx+2,sy+6,28,10); X.fillRect(sx+6,sy+14,20,6);
     X.fillStyle=TREE_DARK[zi];
-    X.fillRect(sx+10,sy+2,12,6);                             // shadow on canopy
+    X.fillRect(sx+10,sy+2,12,6);
     return;
   }
   if(type===T.ROCK){
     X.fillStyle='#3a3a4a'; X.fillRect(sx+5,sy+8,22,16); X.fillRect(sx+9,sy+4,14,20);
-    X.fillStyle='#5a5a6a'; X.fillRect(sx+9,sy+4,14,6);     // highlight
-    X.fillStyle='#222233'; X.fillRect(sx+20,sy+18,7,6);    // shadow
+    X.fillStyle='#5a5a6a'; X.fillRect(sx+9,sy+4,14,6);
+    X.fillStyle='#222233'; X.fillRect(sx+20,sy+18,7,6);
     return;
   }
 
-  // Ground details
   const h=(tx*7+ty*11)%17;
   if(type===T.GRASS&&h<3){
     X.fillStyle='#22901a';
@@ -245,11 +239,9 @@ class Monster{
 
 function spawnMonsters(){
   monsters=[];
-  const midY=Math.floor(HT/2);
   ZONES.forEach(zone=>{
     for(let i=0;i<6;i++){
-      let tx,ty;
-      let tries=0;
+      let tx,ty,tries=0;
       do{
         tx=zone.tx0+3+Math.floor(Math.random()*(zone.tx1-zone.tx0-6));
         ty=4+Math.floor(Math.random()*(HT-8));
@@ -327,32 +319,21 @@ function updateBattle(dt){
 function drawRobot(cx,cy,mv,t,ps=3){
   function sp(dx,dy,c,w=1,h=1){X.fillStyle=c;X.fillRect(Math.round(cx+dx*ps),Math.round(cy+dy*ps),w*ps,h*ps);}
   const leg=mv?(Math.sin(t*13)>0?1:-1):0, arm=mv?Math.round(Math.sin(t*13)):0;
-  // legs
   sp(-3,5,'#2266cc',2,4+leg); sp(1,5,'#2266cc',2,4-leg);
   sp(-4,9+leg,'#44ccff',3,1); sp(1,9-leg,'#44ccff',3,1);
-  // body
   sp(-4,-1,'#2266cc',8,6); sp(-4,-1,'#44ccff',8,1); sp(-4,-1,'#44ccff',1,6); sp(3,-1,'#44ccff',1,6);
-  // chest screen
   sp(-2,0,'#0d2a60',4,4); sp(-2,0,'#44ccff',4,1);
   sp(-1,1,'#ffdd00',2,1); sp(0,0,'#ffdd00',1,4);
-  // arms
   sp(-6,-1+arm,'#2266cc',2,4); sp(4,-1-arm,'#2266cc',2,4);
   sp(-6,3+arm,'#44ccff',2,2); sp(4,3-arm,'#44ccff',2,2);
-  // neck
   sp(-1,-3,'#0d2a60',2,2);
-  // head
   sp(-4,-11,'#2266cc',8,8); sp(-4,-11,'#44ccff',8,1); sp(-4,-11,'#44ccff',1,8); sp(3,-11,'#44ccff',1,8); sp(-4,-4,'#44ccff',8,1);
-  // visor
   sp(-3,-10,'#0d2a60',6,5); sp(-3,-10,'#44ccff',6,1);
-  // eyes
   sp(-3,-9,'#44ccff',2,3); sp(1,-9,'#44ccff',2,3);
   sp(-2,-8,'#0d2a60',1,1); sp(2,-8,'#0d2a60',1,1);
   sp(-3,-9,'#fff',1,1); sp(1,-9,'#fff',1,1);
-  // mouth
   sp(-2,-5,'#ffdd00',1,1); sp(-1,-4,'#ffdd00',2,1); sp(1,-5,'#ffdd00',1,1);
-  // ear bolts
   sp(-5,-8,'#44ccff',1,2); sp(4,-8,'#44ccff',1,2);
-  // antenna
   sp(0,-12,'#44ccff',1,2);
   sp(-1,-14,'#ff6699',2,2); if(Math.sin(t*3)>0) sp(-1,-14,'#fff',1,1);
 }
@@ -394,7 +375,7 @@ function drawMonster(type,cx,cy,t,ps=3){
     mp(-3,5,'#ddddbb',2,5); mp(1,5,'#ddddbb',2,5);
     mp(-4,10,'#ddddbb',3,1); mp(1,10,'#ddddbb',3,1);
 
-  } else { // DRAGON
+  } else {
     const wf=Math.round(Math.sin(t*5));
     mp(-12,-4+wf,'#882200',10,8); mp(2,-4+wf,'#882200',10,8);
     mp(-10,-3+wf,'#cc3311',6,5); mp(4,-3+wf,'#cc3311',6,5);
@@ -415,31 +396,21 @@ function drawHUD(){
   X.fillStyle='#020c22'; X.fillRect(0,0,800,HUD_H);
   X.fillStyle='#2244aa'; X.fillRect(0,HUD_H-2,800,2);
   X.fillStyle='#3355bb'; X.fillRect(0,0,4,HUD_H); X.fillRect(796,0,4,HUD_H);
-
-  // hearts
   for(let i=0;i<player.maxHp;i++) pixHeart(16+i*24, HUD_H/2, i<player.hp);
-
-  // zone name
   const zi=Math.min(3,Math.floor(player.x/WW*4));
   X.textAlign='center'; X.font='bold 15px "Courier New"';
   X.fillStyle='#ffcc00'; X.fillText(ZONES[zi].name,400,22);
   X.font='12px "Courier New"'; X.fillStyle='#7799ff';
   X.fillText(['ADDITION','SUBTRACTION','MULTIPLICATION','DIVISION'][zi]+' MONSTERS',400,43);
-
-  // score
   X.textAlign='right'; X.font='bold 13px "Courier New"'; X.fillStyle='#fff';
   X.fillText('SCORE: '+score,780,20);
-
-  // minimap
   const mx=640,my=6,mw=148,mh=HUD_H-12;
   X.fillStyle='#030916'; X.fillRect(mx,my,mw,mh);
   ['#1a5c1a','#c8a030','#0d1a0d','#1e0700'].forEach((c,i)=>{
     X.fillStyle=c; X.fillRect(mx+i*(mw/4),my+1,mw/4,mh-2);
   });
-  // player dot
   const pdx=mx+(player.x/WW)*mw, pdy=my+(player.y/WH)*mh;
   X.fillStyle='#44ccff'; X.fillRect(Math.round(pdx)-2,Math.round(pdy)-2,4,4);
-  // monster dots
   monsters.forEach(m=>{
     if(m.state===MS.DEAD) return;
     const zi2=ZONES.indexOf(m.zone);
@@ -454,46 +425,31 @@ function drawHUD(){
 function drawBattle(t){
   X.fillStyle='rgba(2,6,22,0.88)'; X.fillRect(0,0,800,600);
   retroBox(80,60,640,460,'#3355cc');
-
   const m=battle.monster;
-  // headers
   X.textAlign='left'; X.font='13px "Courier New"'; X.fillStyle='#5577cc';
   X.fillText('VS. '+MON_INFO[m.type].name+'  ['+m.zone.name+']',96,82);
   X.textAlign='right'; X.fillText('ESC = FLEE',706,82);
-
-  // HP bars
   hpBar(100,96,220,14,m.hp,m.maxHp);
   X.fillStyle='#aaa'; X.font='11px "Courier New"'; X.textAlign='left';
   X.fillText('MONSTER  '+m.hp+'/'+m.maxHp,100,124);
   hpBar(480,96,220,14,player.hp,player.maxHp);
   X.textAlign='right'; X.fillText('YOUR HP  '+player.hp+'/'+player.maxHp,700,124);
-
-  // Monster sprite (battle size)
   const msx=battle.monShake>.0?220+Math.sin(t*40)*7:220;
   drawMonster(m.type, msx, 260, t, 5);
-
-  // Player sprite (battle size)
   const psx=battle.plyShake>.0?580+Math.sin(t*40)*7:580;
   drawRobot(psx, 270, false, t, 4);
-
-  // Flash overlays
   if(battle.greenFlash>0){ X.fillStyle=`rgba(0,180,0,${battle.greenFlash*.7})`; X.fillRect(80,60,640,460); }
   if(battle.redFlash>0)  { X.fillStyle=`rgba(180,0,0,${battle.redFlash*.7})`;   X.fillRect(80,60,640,460); }
-
-  // Question
   if(battle.phase==='q'){
     X.textAlign='center'; X.font='bold 34px "Courier New"';
     X.fillStyle='#111'; X.fillText(battle.q.disp+' = ?',401,390);
     X.fillStyle='#ffcc00'; X.fillText(battle.q.disp+' = ?',400,388);
-    // input box
     retroBox(270,398,260,46,'#4466dd');
     X.font='bold 26px "Courier New"'; X.fillStyle='#44ccff'; X.textAlign='center';
     X.fillText(battle.buf===''?'_':battle.buf,400,430);
     X.font='12px "Courier New"'; X.fillStyle='#6688aa';
     X.fillText('TYPE NUMBER  +  PRESS  ENTER',400,460);
   }
-
-  // Message
   if(battle.msg){
     X.textAlign='center'; X.font='bold 18px "Courier New"';
     X.fillStyle='#000'; X.fillText(battle.msg,401,487);
@@ -530,10 +486,8 @@ function buildTitleMap(){
 }
 
 function drawTitle(t){
-  // background tiles
   for(let ty=0;ty<20;ty++) for(let tx=0;tx<26;tx++) drawTile(TITLE_MAP[ty][tx],tx*32-8,ty*32-8,tx,ty);
   X.fillStyle='rgba(2,6,20,0.78)'; X.fillRect(0,0,800,600);
-
   retroBox(140,55,520,240,'#2244bb');
   X.textAlign='center';
   X.font='bold 52px "Courier New"';
@@ -545,11 +499,9 @@ function drawTitle(t){
   X.fillText('EXPLORE 4 ZONES · FIGHT MONSTERS · DO MATH!',400,192);
   X.fillText('WASD / ARROWS  ·  TYPE ANSWERS  ·  ENTER TO ATTACK',400,216);
   X.fillText('ZONE 1:ADD   ZONE 2:SUB   ZONE 3:MUL   ZONE 4:DIV',400,240);
-
   const pulse=.4+.6*Math.abs(Math.sin(t*2.8));
   X.globalAlpha=pulse; X.fillStyle='#44ccff'; X.font='bold 22px "Courier New"';
   X.fillText('>>> PRESS SPACE TO BEGIN <<<',400,390); X.globalAlpha=1;
-
   drawRobot(310,490,false,t,3);
   drawMonster('SLIME',490,490,t,3);
   scanlines();
@@ -591,10 +543,8 @@ function init(){
 window.addEventListener('keydown',e=>{
   if([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
   KEYS[e.key]=true;
-
   if(GSTATE===ST.TITLE&&e.key===' '){ init(); GSTATE=ST.WORLD; }
   if(GSTATE===ST.OVER &&e.key===' '){ init(); GSTATE=ST.WORLD; }
-
   if(GSTATE===ST.BATTLE){
     if(e.key>='0'&&e.key<='9') battle.buf+=e.key;
     if(e.key==='Backspace') battle.buf=battle.buf.slice(0,-1);
@@ -631,10 +581,7 @@ function draw(t){
   X.imageSmoothingEnabled=false;
   if(GSTATE===ST.TITLE){ drawTitle(t); return; }
   if(GSTATE===ST.OVER ){ drawGameOver(t); return; }
-
   drawWorld();
-
-  // monsters in world
   monsters.forEach(m=>{
     if(m.state===MS.DEAD) return;
     const sx=Math.round(m.x-CAM.x), sy=Math.round(m.y-CAM.y);
@@ -644,17 +591,13 @@ function draw(t){
     if(m.hp<m.maxHp){
       const bw=36; hpBar(sx-bw/2,sy-28,bw,5,m.hp,m.maxHp,'#22cc22');
     }
-    // Chase indicator
     if(m.state===MS.CHASE){
       X.fillStyle='rgba(255,50,50,.6)'; X.font='bold 10px "Courier New"';
       X.textAlign='center'; X.fillText('!',sx,sy-32);
     }
   });
-
-  // player
   const mv=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','a','s','d','w'].some(k=>KEYS[k]);
   drawRobot(Math.round(player.x-CAM.x), Math.round(player.y-CAM.y), mv, t, 2);
-
   drawHUD();
   drawZoneNotif();
   if(GSTATE===ST.BATTLE) drawBattle(t);
